@@ -1,0 +1,375 @@
+name: SSHPLUS - Full Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    name: Clonar, Build e Deploy
+    runs-on: ubuntu-latest
+    steps:
+
+      # =============================================
+      # PASSO 1: CLONAR TUDO DO REPOSITÓRIO ATUAL
+      # =============================================
+      - name: Checkout completo do repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # =============================================
+      # PASSO 2: INSTALAR DEPENDÊNCIAS
+      # =============================================
+      - name: Instalar dependências
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            wget curl git jq unzip \
+            shellcheck bash \
+            dos2unix
+
+      # =============================================
+      # PASSO 3: VALIDAR SCRIPTS
+      # =============================================
+      - name: Validar sintaxe dos scripts
+        run: |
+          echo "=== Validando scripts ==="
+          for script in Plus senharoot.sh; do
+            if [ -f "$script" ]; then
+              bash -n "$script" && echo "✓ $script - sintaxe OK" || echo "✗ $script - erro de sintaxe"
+            else
+              echo "⚠ $script não encontrado"
+            fi
+          done
+
+      # =============================================
+      # PASSO 4: PREPARAR SITE ESTÁTICO
+      # =============================================
+      - name: Preparar assets para GitHub Pages
+        run: |
+          mkdir -p _site/assets _site/api _site/install
+
+          [ -f "Plus" ]          && cp Plus          _site/install/
+          [ -f "senharoot.sh" ]  && cp senharoot.sh  _site/install/
+          [ -f "README.md" ]     && cp README.md     _site/
+
+          for dir in Install Modulos Sistema Slowdns; do
+            if [ -d "$dir" ]; then
+              mkdir -p "_site/$dir"
+              cp -r "$dir"/. "_site/$dir/" 2>/dev/null || true
+            fi
+          done
+
+          date +%Y%m%d%H%M%S > _site/versao.txt
+
+          echo "=== Estrutura do site ==="
+          find _site -type f | head -50
+
+      # =============================================
+      # PASSO 5: GERAR PÁGINA HTML PRINCIPAL
+      # =============================================
+      - name: Gerar index.html
+        run: |
+          VERSION=$(date +%Y%m%d%H%M%S)
+          DATA=$(date "+%d/%m/%Y %H:%M:%S")
+
+          cat > _site/index.html << HTMLEOF
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>SSHPLUS Manager</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+                      color: #e6edf3;
+                      min-height: 100vh;
+                  }
+                  .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+                  .header {
+                      text-align: center;
+                      padding: 60px 0 40px;
+                      border-bottom: 1px solid #30363d;
+                      margin-bottom: 40px;
+                  }
+                  .header h1 {
+                      font-size: 3em;
+                      background: linear-gradient(90deg, #58a6ff, #3fb950);
+                      -webkit-background-clip: text;
+                      -webkit-text-fill-color: transparent;
+                      background-clip: text;
+                  }
+                  .header p { color: #8b949e; font-size: 1.2em; margin-top: 10px; }
+                  .card {
+                      background: #161b22;
+                      border: 1px solid #30363d;
+                      border-radius: 12px;
+                      padding: 30px;
+                      margin-bottom: 25px;
+                      transition: transform 0.2s, box-shadow 0.2s;
+                  }
+                  .card:hover {
+                      transform: translateY(-3px);
+                      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+                  }
+                  .card h2 { color: #58a6ff; margin-bottom: 15px; font-size: 1.5em; }
+                  .card p { color: #c9d1d9; line-height: 1.7; }
+                  .card ul { list-style: none; padding: 0; }
+                  .card ul li {
+                      padding: 8px 0;
+                      border-bottom: 1px solid #21262d;
+                      color: #8b949e;
+                  }
+                  .card ul li:last-child { border: none; }
+                  .card ul li::before { content: "▸ "; color: #3fb950; }
+                  .cmd {
+                      background: #0d1117;
+                      border: 1px solid #30363d;
+                      border-radius: 8px;
+                      padding: 15px 20px;
+                      margin: 15px 0;
+                      font-family: 'Courier New', monospace;
+                      font-size: 0.9em;
+                      color: #7ee787;
+                      word-break: break-all;
+                  }
+                  .cmd .prompt { color: #58a6ff; }
+                  .btn {
+                      display: inline-block;
+                      padding: 12px 28px;
+                      background: #238636;
+                      color: #fff;
+                      border: none;
+                      border-radius: 8px;
+                      font-size: 1em;
+                      cursor: pointer;
+                      text-decoration: none;
+                      transition: background 0.2s;
+                      margin: 5px;
+                  }
+                  .btn:hover { background: #2ea043; }
+                  .btn-outline {
+                      background: transparent;
+                      border: 2px solid #30363d;
+                      color: #e6edf3;
+                  }
+                  .btn-outline:hover { border-color: #58a6ff; color: #58a6ff; }
+                  .footer {
+                      text-align: center;
+                      padding: 40px 0;
+                      border-top: 1px solid #30363d;
+                      margin-top: 40px;
+                      color: #484f58;
+                  }
+                  .badge {
+                      display: inline-block;
+                      padding: 4px 12px;
+                      border-radius: 20px;
+                      font-size: 0.8em;
+                      font-weight: 600;
+                      margin: 2px;
+                  }
+                  .badge-green { background: #23863620; color: #3fb950; border: 1px solid #238636; }
+                  .badge-blue  { background: #1f6feb20; color: #58a6ff; border: 1px solid #1f6feb; }
+                  .grid-2 {
+                      display: grid;
+                      grid-template-columns: 1fr 1fr;
+                      gap: 20px;
+                  }
+                  @media (max-width: 768px) {
+                      .grid-2 { grid-template-columns: 1fr; }
+                      .header h1 { font-size: 2em; }
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="header">
+                      <h1>🚀 SSHPLUS</h1>
+                      <p>Gerenciador de SSH Premium — Script de Instalação Automática</p>
+                      <div style="margin-top: 20px;">
+                          <span class="badge badge-green">✓ Shell Script</span>
+                          <span class="badge badge-blue">✓ Ubuntu/Debian</span>
+                          <span class="badge badge-blue">✓ SSH + VPN</span>
+                      </div>
+                  </div>
+
+                  <div class="card">
+                      <h2>📥 Instalação Rápida</h2>
+                      <p>Execute o comando abaixo como <strong>root</strong> no seu servidor Ubuntu/Debian:</p>
+                      <div class="cmd">
+                          <span class="prompt">root@server:~#</span> apt update -y && apt upgrade -y && wget https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/Plus && chmod 777 Plus && ./Plus
+                      </div>
+                      <p style="margin-top: 15px;">Após a instalação, use o comando <strong>menu</strong> para acessar o painel.</p>
+                  </div>
+
+                  <div class="card">
+                      <h2>🔑 Acesso Root</h2>
+                      <p>Para configurar ou recuperar a senha root:</p>
+                      <div class="cmd">
+                          <span class="prompt">root@server:~#</span> wget https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/senharoot.sh && chmod 777 senharoot.sh && ./senharoot.sh
+                      </div>
+                  </div>
+
+                  <div class="grid-2">
+                      <div class="card">
+                          <h2>📂 Estrutura do Projeto</h2>
+                          <ul>
+                              <li><strong>Plus</strong> — Script principal de instalação</li>
+                              <li><strong>senharoot.sh</strong> — Gerenciamento de senha root</li>
+                              <li><strong>Install/</strong> — Pacotes de instalação</li>
+                              <li><strong>Modulos/</strong> — Módulos do sistema</li>
+                              <li><strong>Sistema/</strong> — Configurações do sistema</li>
+                              <li><strong>Slowdns/</strong> — Suporte a SlowDNS</li>
+                          </ul>
+                      </div>
+                      <div class="card">
+                          <h2>🔧 Recursos</h2>
+                          <ul>
+                              <li>Gerenciamento de usuários SSH</li>
+                              <li>Limite de conexões simultâneas</li>
+                              <li>Proxy Squid + Stunnel</li>
+                              <li>SlowDNS integrado</li>
+                              <li>Bot Telegram incluso</li>
+                              <li>Otimização de rede (TCP Tweaker)</li>
+                          </ul>
+                      </div>
+                  </div>
+
+                  <div class="card">
+                      <h2>📦 Arquivos Disponíveis</h2>
+                      <p>Links diretos para download:</p>
+                      <div style="margin-top: 15px; text-align: center;">
+                          <a href="install/Plus"        class="btn"         target="_blank">📥 Plus</a>
+                          <a href="install/senharoot.sh" class="btn"        target="_blank">📥 senharoot.sh</a>
+                          <a href="install/"            class="btn btn-outline" target="_blank">📁 Install/</a>
+                          <a href="README.md"           class="btn btn-outline" target="_blank">📖 README</a>
+                          <a href="https://github.com/kiritosshxd/SSHPLUS" class="btn btn-outline" target="_blank">🐙 GitHub</a>
+                      </div>
+                  </div>
+
+                  <div class="card">
+                      <h2>⏱ Última Atualização</h2>
+                      <p><strong>Versão:</strong> ${VERSION}</p>
+                      <p><strong>Data:</strong> ${DATA} UTC</p>
+                  </div>
+
+                  <div class="footer">
+                      <p>SSHPLUS Manager — Desenvolvido por <strong>@kiritosshxd</strong></p>
+                      <p style="margin-top: 8px; font-size: 0.9em;">
+                          <a href="https://t.me/SSHPLUS" style="color: #58a6ff; text-decoration: none;">Telegram: @SSHPLUS</a>
+                      </p>
+                      <p style="margin-top: 15px; font-size: 0.8em; color: #484f58;">
+                          Deploy automático via GitHub Actions
+                      </p>
+                  </div>
+              </div>
+          </body>
+          </html>
+          HTMLEOF
+
+          echo "✓ index.html gerado com sucesso"
+
+      # =============================================
+      # PASSO 6: GERAR PÁGINA DE STATUS DA API
+      # =============================================
+      - name: Gerar api/status.json
+        run: |
+          cat > _site/api/status.json << EOF
+          {
+            "projeto": "SSHPLUS",
+            "versao": "1.0.0",
+            "status": "online",
+            "repositorio": "https://github.com/kiritosshxd/SSHPLUS",
+            "ultima_atualizacao": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "scripts": {
+              "install":    "https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/Plus",
+              "senharoot":  "https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/senharoot.sh"
+            },
+            "sistema": {
+              "pacotes": ["bc","screen","nano","unzip","lsof","net-tools","nload","jq","curl","figlet","python3","at"],
+              "portas":  ["22 (SSH)","80 (HTTP)","443 (SSL/Stunnel)","3128 (Squid)","8080 (Proxy)","8799 (SlowDNS)"]
+            }
+          }
+          EOF
+          echo "✓ api/status.json gerado"
+
+      # =============================================
+      # PASSO 7: GERAR COMANDOS DE INSTALAÇÃO
+      # =============================================
+      - name: Gerar comandos.txt
+        run: |
+          cat > _site/comandos.txt << 'EOF'
+          ============================================
+             SSHPLUS - COMANDOS DE INSTALAÇÃO
+          ============================================
+
+          1) INSTALAÇÃO COMPLETA:
+             apt update -y && apt upgrade -y && wget https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/Plus && chmod 777 Plus && ./Plus
+
+          2) ACESSO ROOT:
+             wget https://raw.githubusercontent.com/kiritosshxd/SSHPLUS/main/senharoot.sh && chmod 777 senharoot.sh && ./senharoot.sh
+
+          3) APÓS INSTALAR:
+             digite: menu
+
+          ============================================
+          Mais informações: https://t.me/SSHPLUS
+          ============================================
+          EOF
+          echo "✓ comandos.txt gerado"
+
+      # =============================================
+      # PASSO 8: DEPLOY NO GITHUB PAGES
+      # =============================================
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload do artefato
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # =============================================
+      # PASSO 9: CRIAR TAG DE VERSÃO
+      # =============================================
+      - name: Criar tag de versão
+        run: |
+          VERSION="v$(date +%Y%m%d.%H%M)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Deploy automático $VERSION" 2>/dev/null || echo "Tag já existe ou falhou"
+          git push origin "$VERSION" 2>/dev/null || echo "Push da tag ignorado"
+
+      # =============================================
+      # PASSO 10: MOSTRAR URL DO DEPLOY
+      # =============================================
+      - name: Mostrar URL do deploy
+        run: |
+          echo "============================================"
+          echo "  ✅ DEPLOY REALIZADO COM SUCESSO!"
+          echo "============================================"
+          echo ""
+          echo "  📍 URL do site:"
+          echo "  https://$(echo ${{ github.repository }} | cut -d'/' -f1).github.io/SSHPLUS/"
+          echo ""
+          echo "  📍 URL alternativa:"
+          echo "  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo ""
+          echo "  📦 Commit: ${{ github.sha }}"
+          echo "  🕐 Data: $(date)"
+          echo "============================================"
